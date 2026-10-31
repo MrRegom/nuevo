@@ -2,12 +2,13 @@
 // Scan360 UI: captura guiada por sensores + procesamiento final (alineación, mezcla, relleno).
 const { D2R, orientationMatrix, forward, angleBetween, toCam, buildTargets, Pano, makeGray, alignShots, stitchOrder, tick } = Core;
 
-const FW = 4096, FH = 2048;   // panorama final
+let FW = 4096, FH = 2048;     // panorama final (según la resolución elegida)
 const PW = 1024, PH = 512;    // vista previa en vivo
 const ALIGN_DEG = 5;          // tolerancia de alineación para capturar
 const MAX_SPEED = 20;         // deg/s máximo para considerar "quieto"
 const DWELL_MS = 400;         // tiempo alineado antes de capturar
-const MAXSIDE = 1280, SMALL = 320;
+let MAXSIDE = 1280;            // lado máximo de cada foto guardada
+const SMALL = 320;
 
 const $ = id => document.getElementById(id);
 const S = {
@@ -81,6 +82,7 @@ async function start() {
   }
   const v = $('video'); v.srcObject = S.stream; await v.play().catch(() => {});
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  [FW, FH, MAXSIDE] = pickResolution($('res').value);
   S.vfov = +$('fov').value; S.alpha0 = null; S.hasOri = false; S.sim = false;
   S.targets = buildTargets($('preset').value); S.shots = [];
   S.dwell = 0; S.lastFwd = null; S.busy = false; S.finishing = false;
@@ -183,7 +185,11 @@ async function process() {
   let res;
   try { res = await alignShots(S.shots, S.vfov, (m, p) => say(m, p * 0.5)); }
   catch (e) { console.error(e); res = { vfov: S.vfov, Rs: S.shots.map(s => s.R) }; }
-  const pano = new Pano(FW, FH), order = stitchOrder(res.Rs);
+  let pano;
+  for (;;) { // si el equipo no tiene memoria, baja de resolución
+    try { pano = new Pano(FW, FH); break; } catch (e) { if (FW <= 4096) throw e; FW = FW > 5760 ? 5760 : 4096; FH = FW / 2; }
+  }
+  const order = stitchOrder(res.Rs);
   const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
   for (let k = 0; k < order.length; k++) {
     const i = order[k];
@@ -199,13 +205,10 @@ async function process() {
   say('Guardando…', 0.97); await tick();
   const out = document.createElement('canvas'); out.width = FW; out.height = FH;
   out.getContext('2d').putImageData(new ImageData(pano.data, FW, FH), 0, 0);
-  const raw = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.92));
-  S.blob = new Blob([addXmp(await raw.arrayBuffer(), FW, FH)], { type: 'image/jpeg' });
-  if (S.url) URL.revokeObjectURL(S.url);
-  S.url = URL.createObjectURL(S.blob);
-  show('result');
-  if (S.viewer) { try { S.viewer.destroy(); } catch (e) {} }
-  if (window.pannellum) S.viewer = pannellum.viewer('pano', { type: 'equirectangular', panorama: S.url, autoLoad: true, showFullscreenCtrl: false });
+  const raw = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.94));
+  const blob = new Blob([addXmp(await raw.arrayBuffer(), FW, FH)], { type: 'image/jpeg' });
+  const rec = await saveCapture(blob, out);
+  showResult(blob, rec);
 }
 
 function finish() {
@@ -216,25 +219,108 @@ function finish() {
   process().catch(e => { console.error(e); $('introErr').textContent = 'Error al procesar: ' + e.message; show('intro'); });
 }
 
+// ---------- resolución ----------
+const RES = { max: [8192, 4096, 1920], high: [5760, 2880, 1600], std: [4096, 2048, 1280] };
+function canvasOk(w, h) { // Safari iOS limita el canvas a ~16.7 Mpx
+  try {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d'); if (!x) return false;
+    x.fillStyle = '#fff'; x.fillRect(w - 1, h - 1, 1, 1);
+    const ok = x.getImageData(w - 1, h - 1, 1, 1).data[3] === 255;
+    c.width = c.height = 0; return ok;
+  } catch (e) { return false; }
+}
+function pickResolution(key) {
+  const order = ['max', 'high', 'std'];
+  for (const k of order.slice(order.indexOf(key))) if (canvasOk(RES[k][0], RES[k][1])) return RES[k];
+  return RES.std;
+}
+
+// ---------- galería (IndexedDB) ----------
+const idb = () => new Promise((res, rej) => {
+  const r = indexedDB.open('scan360', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('caps', { keyPath: 'id' });
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+async function dbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => { const t = db.transaction('caps', mode), req = fn(t.objectStore('caps')); t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error); });
+}
+const dbAll = () => dbDo('readonly', s => s.getAll());
+const dbPut = rec => dbDo('readwrite', s => s.put(rec));
+const dbDel = id => dbDo('readwrite', s => s.delete(id));
+const dbGet = id => dbDo('readonly', s => s.get(id));
+const fmtDate = t => new Date(t).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
+
+async function saveCapture(blob, canvas) {
+  const th = document.createElement('canvas'); th.width = 320; th.height = 160;
+  th.getContext('2d').drawImage(canvas, 0, 0, 320, 160);
+  const rec = { id: Date.now(), name: 'Captura ' + fmtDate(Date.now()), createdAt: Date.now(), w: FW, h: FH, size: blob.size, thumb: th.toDataURL('image/jpeg', 0.7), blob };
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); await dbPut(rec); } catch (e) { console.warn('No se pudo guardar en la galería', e); }
+  refreshCount();
+  return rec;
+}
+async function refreshCount() { try { $('galCount').textContent = (await dbAll()).length; } catch (e) {} }
+
+async function openGallery() {
+  show('gallery');
+  const list = $('galList'); list.innerHTML = '';
+  let caps = []; try { caps = await dbAll(); } catch (e) {}
+  caps.sort((x, y) => y.createdAt - x.createdAt);
+  if (!caps.length) { list.innerHTML = '<p class="empty">Aún no tienes capturas.</p>'; return; }
+  for (const c of caps) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = '<img alt=""><div class="meta"><b></b><small></small></div><div class="acts"></div>';
+    card.querySelector('img').src = c.thumb;
+    card.querySelector('b').textContent = c.name;
+    card.querySelector('small').textContent = fmtDate(c.createdAt) + ' · ' + c.w + '×' + c.h + ' · ' + (c.size / 1048576).toFixed(1) + ' MB';
+    const acts = card.querySelector('.acts');
+    const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; acts.appendChild(b); };
+    add('Ver', () => showResult(c.blob, c));
+    add('JPG', () => exportJpg(c.blob, c.name));
+    add('PNG', () => exportPng(c.blob, c.name));
+    add('Renombrar', async () => { const n = prompt('Nombre:', c.name); if (n && n.trim()) { const r = await dbGet(c.id); r.name = n.trim(); await dbPut(r); openGallery(); } });
+    add('Eliminar', async () => { if (confirm('¿Eliminar "' + c.name + '"?')) { await dbDel(c.id); refreshCount(); openGallery(); } }, 'del');
+    list.appendChild(card);
+  }
+}
+
+function showResult(blob, rec) {
+  S.blob = blob; S.name = (rec && rec.name) || 'panorama';
+  if (S.url) URL.revokeObjectURL(S.url);
+  S.url = URL.createObjectURL(blob);
+  $('resInfo').textContent = rec && rec.w ? rec.w + '×' + rec.h + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB' : '';
+  show('result');
+  if (S.viewer) { try { S.viewer.destroy(); } catch (e) {} }
+  if (window.pannellum) S.viewer = pannellum.viewer('pano', { type: 'equirectangular', panorama: S.url, autoLoad: true, showFullscreenCtrl: false });
+}
+
 // ---------- exportar ----------
-async function saveJpg() {
-  if (!S.blob) return;
-  const file = new File([S.blob], 'panorama.jpg', { type: 'image/jpeg' });
+const safeName = n => (n || 'panorama').replace(/[^\w\-áéíóúñ ]+/gi, '').trim().replace(/\s+/g, '_') || 'panorama';
+async function shareOrDownload(file) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
-  const a = document.createElement('a'); a.href = S.url; a.download = 'panorama.jpg'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+const exportJpg = (blob, name) => shareOrDownload(new File([blob], safeName(name) + '.jpg', { type: 'image/jpeg' }));
+async function exportPng(blob, name) {
+  const bmp = await loadImage(blob), c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0); if (bmp.close) bmp.close();
+  const png = await new Promise(r => c.toBlob(r, 'image/png'));
+  if (png) shareOrDownload(new File([png], safeName(name) + '.png', { type: 'image/png' }));
 }
 function downloadHtml() {
   if (!S.blob) return;
   const fr = new FileReader();
   fr.onload = () => {
     const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-      '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css"><title>Tour 360</title>' +
+      '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css"><title>360</title>' +
       '<style>html,body,#p{margin:0;width:100%;height:100%;background:#000}</style></head><body><div id="p"></div>' +
       '<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></' + 'script>' +
       '<script>pannellum.viewer("p",{type:"equirectangular",panorama:"' + fr.result + '",autoLoad:true,autoRotate:-2});</' + 'script></body></html>';
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = 'tour360.html'; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = safeName(S.name) + '.html'; a.click();
   };
   fr.readAsDataURL(S.blob);
 }
@@ -243,7 +329,12 @@ $('fov').oninput = e => $('fovVal').textContent = e.target.value;
 $('start').onclick = start;
 $('finish').onclick = finish;
 $('cancel').onclick = () => { stop(); show('intro'); };
-$('again').onclick = () => show('intro');
-$('download').onclick = saveJpg;
+$('again').onclick = () => { show('intro'); refreshCount(); };
+$('toGallery').onclick = openGallery;
+$('openGallery').onclick = openGallery;
+$('galBack').onclick = () => { show('intro'); refreshCount(); };
+$('dlJpg').onclick = () => exportJpg(S.blob, S.name);
+$('dlPng').onclick = () => exportPng(S.blob, S.name);
 $('html').onclick = downloadHtml;
+refreshCount();
 window.__scan = S; // hook para pruebas

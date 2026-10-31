@@ -2,6 +2,7 @@
 // Scan360 core: matemáticas, panorama con mezcla, alineación. Sin DOM (se prueba en node).
 (function (root) {
   const D2R = Math.PI / 180;
+  const WS = 4096; // escala de pesos (Uint16)
   const tick = () => new Promise(r => setTimeout(r, 0));
 
   // ---------- álgebra 3x3 (row-major) ----------
@@ -40,7 +41,7 @@
       this.W = W; this.H = H;
       this.data = new Uint8ClampedArray(W * H * 4);
       for (let i = 3; i < this.data.length; i += 4) this.data[i] = 255;
-      this.weight = new Float32Array(W * H);
+      this.weight = new Uint16Array(W * H); // peso acumulado * WS
       this.sinLon = new Float32Array(W); this.cosLon = new Float32Array(W);
       for (let i = 0; i < W; i++) { const lo = ((i + .5) / W) * 2 * Math.PI - Math.PI; this.sinLon[i] = Math.sin(lo); this.cosLon[i] = Math.cos(lo); }
       this.sinLat = new Float32Array(H); this.cosLat = new Float32Array(H);
@@ -83,7 +84,7 @@
       if (useGain) {
         let n = 0, cnt = 0, o0 = 0, o1 = 0, o2 = 0, n0 = 0, n1 = 0, n2 = 0;
         this._scan(R, sw, sh, vfov, (idx, sx, sy, w) => {
-          if (w < 0.1 || weight[idx] < 0.05) return;
+          if (w < 0.1 || weight[idx] < 0.05 * WS) return;
           if ((++cnt) & 3) return;
           const o = idx * 4, so = (((sy + .5) | 0) * sw + ((sx + .5) | 0)) * 4;
           o0 += data[o]; o1 += data[o+1]; o2 += data[o+2];
@@ -102,11 +103,11 @@
         const r = (sd[p00]*a + sd[p10]*b + sd[p01]*c + sd[p11]*d) * g0;
         const g = (sd[p00+1]*a + sd[p10+1]*b + sd[p01+1]*c + sd[p11+1]*d) * g1;
         const bl = (sd[p00+2]*a + sd[p10+2]*b + sd[p01+2]*c + sd[p11+2]*d) * g2;
-        const wn = w * w + 1e-3, wo = weight[idx], wt = wo + wn, k = wn / wt, o = idx * 4;
+        const wn = w * w + 1e-3, wo = weight[idx] / WS, wt = wo + wn, k = wn / wt, o = idx * 4;
         data[o] = data[o] * (1 - k) + r * k;
         data[o+1] = data[o+1] * (1 - k) + g * k;
         data[o+2] = data[o+2] * (1 - k) + bl * k;
-        weight[idx] = wt;
+        weight[idx] = Math.min(65535, wt * WS);
       });
     }
 

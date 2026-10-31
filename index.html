@@ -15,13 +15,17 @@
   <div class="hero"><div class="person">🧍</div><div class="ring"></div></div>
   <h1>Párate en un solo punto<br>y escanea</h1>
   <p class="sub">Gira sobre ti mismo y apunta a los puntos que aparecen. La foto se toma sola cuando estás alineado.</p>
-  <label class="fov">Calidad
+  <label class="fov">Resolución del 360°
+    <select id="res"><option value="max">Máxima · 8192×4096 (si tu equipo lo soporta)</option><option value="high" selected>Alta · 5760×2880 (recomendada)</option><option value="std">Estándar · 4096×2048 (más rápida)</option></select>
+  </label>
+  <label class="fov">Cantidad de fotos
     <select id="preset"><option value="high" selected>Alta · 52 fotos (recomendado)</option><option value="fast">Rápida · 30 fotos</option></select>
   </label>
   <label class="fov">Campo de visión inicial: <b id="fovVal">62</b>° <span class="mini">(se calibra solo)</span>
     <input id="fov" type="range" min="45" max="90" value="62">
   </label>
   <button id="start" class="btn">Sí, estoy de pie</button>
+  <button id="openGallery" class="btn ghost">Mis capturas (<span id="galCount">0</span>)</button>
   <p id="introErr" class="err"></p>
 </section>
 
@@ -46,16 +50,19 @@
 
 <section id="result" class="screen">
   <div id="pano"></div>
-  <div class="bar">
+  <div id="resInfo"></div>
+  <div class="bar wrap">
     <button id="again" class="btn ghost">Nuevo</button>
+    <button id="toGallery" class="btn ghost">Galería</button>
+    <button id="dlJpg" class="btn">JPG</button>
+    <button id="dlPng" class="btn">PNG</button>
     <button id="html" class="btn ghost">Visor HTML</button>
-    <button id="download" class="btn">Guardar JPG</button>
   </div>
-  <details id="embed"><summary>Usar en tu página web</summary>
-    <p>Opción A: descarga <b>Visor HTML</b> (un solo archivo, funciona en cualquier web).<br>Opción B: sube <code>panorama.jpg</code> junto a <code>viewer.html</code> y pega:</p>
-    <pre>&lt;iframe src="viewer.html?img=panorama.jpg"
-  width="100%" height="500" allowfullscreen&gt;&lt;/iframe&gt;</pre>
-  </details>
+</section>
+
+<section id="gallery" class="screen">
+  <div class="gtop"><button id="galBack" class="btn ghost">← Volver</button><h2>Mis capturas</h2></div>
+  <div id="galList"></div>
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>

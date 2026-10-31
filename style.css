@@ -46,3 +46,5 @@ select{background:#222;color:#fff;border:1px solid #444;border-radius:8px;paddin
 .card .acts button{background:#2a2a2a;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
 .card .acts button.del{color:#ff7b7b}
 .empty{color:#888;padding:40px 0;text-align:center}
+
+.tip{background:#1b2a1f;border:1px solid #2f5a3a;color:#bfe8c8;border-radius:12px;padding:10px 14px;font-size:13px;max-width:340px;text-align:left}

@@ -5,8 +5,8 @@ const { D2R, orientationMatrix, forward, angleBetween, toCam, buildTargets, Pano
 let FW = 4096, FH = 2048;     // panorama final (según la resolución elegida)
 const PW = 1024, PH = 512;    // vista previa en vivo
 const ALIGN_DEG = 5;          // tolerancia de alineación para capturar
-const MAX_SPEED = 20;         // deg/s máximo para considerar "quieto"
-const DWELL_MS = 400;         // tiempo alineado antes de capturar
+const MAX_SPEED = 12;         // deg/s máximo para considerar "quieto"
+const DWELL_MS = 450;         // tiempo alineado antes de capturar
 let MAXSIDE = 1280;            // lado máximo de cada foto guardada
 const SMALL = 320;
 
@@ -45,17 +45,37 @@ function enableSimDrag() {
 }
 
 // ---------- captura ----------
-function capture(R) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function sharpness(canvas) { // varianza del laplaciano en una versión reducida
+  const w = 192, h = Math.max(32, Math.round(192 * canvas.height / canvas.width));
+  const t = document.createElement('canvas'); t.width = w; t.height = h;
+  const x = t.getContext('2d', { willReadFrequently: true }); x.drawImage(canvas, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data, g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = d[i*4] * 0.299 + d[i*4+1] * 0.587 + d[i*4+2] * 0.114;
+  let s = 0, s2 = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) for (let xx = 1; xx < w - 1; xx++) {
+    const k = y * w + xx, l = 4 * g[k] - g[k-1] - g[k+1] - g[k-w] - g[k+w]; s += l; s2 += l * l; n++;
+  }
+  return s2 / n - (s / n) ** 2;
+}
+async function capture() {
   const v = $('video'), vw = v.videoWidth, vh = v.videoHeight;
   if (!vw) return false;
   const k = Math.min(1, MAXSIDE / Math.max(vw, vh));
-  const big = document.createElement('canvas'); big.width = Math.round(vw * k); big.height = Math.round(vh * k);
-  big.getContext('2d').drawImage(v, 0, 0, big.width, big.height);
-  const blobP = new Promise(res => big.toBlob(res, 'image/jpeg', 0.92));
-  const ks = SMALL / Math.max(vw, vh), gw = Math.round(vw * ks), gh = Math.round(vh * ks);
+  let best = null; // la más nítida de 3 fotos seguidas
+  for (let n = 0; n < 3; n++) {
+    const big = document.createElement('canvas'); big.width = Math.round(vw * k); big.height = Math.round(vh * k);
+    big.getContext('2d').drawImage(v, 0, 0, big.width, big.height);
+    const R = currentR(), sc = sharpness(big);
+    if (!best || sc > best.sc) best = { big, R, sc };
+    if (n < 2) await sleep(70);
+  }
+  const { big, R } = best;
+  const blobP = new Promise(res => big.toBlob(res, 'image/jpeg', 0.93));
+  const ks = SMALL / Math.max(big.width, big.height), gw = Math.round(big.width * ks), gh = Math.round(big.height * ks);
   const sm = document.createElement('canvas'); sm.width = gw; sm.height = gh;
   const sctx = sm.getContext('2d', { willReadFrequently: true });
-  sctx.drawImage(v, 0, 0, gw, gh);
+  sctx.drawImage(big, 0, 0, gw, gh);
   const rgba = sctx.getImageData(0, 0, gw, gh).data;
   S.shots.push({ R, blobP, g: makeGray(rgba, gw, gh), gw, gh });
   S.preview.add(R, rgba, gw, gh, S.vfov, false);
@@ -149,8 +169,8 @@ function loop(now) {
   if (aligned) { g.beginPath(); g.arc(cx, cy, 26, -Math.PI / 2, -Math.PI / 2 + Math.min(1, S.dwell / DWELL_MS) * 2 * Math.PI); g.lineWidth = 5; g.strokeStyle = '#5f8'; g.stroke(); }
   if (aligned && S.dwell >= DWELL_MS) {
     S.busy = true; S.dwell = 0;
-    if (capture(R)) nearest.done = true;
-    setTimeout(() => S.busy = false, 250);
+    const tgt = nearest;
+    capture().then(ok => { if (ok) tgt.done = true; }).catch(e => console.error(e)).finally(() => setTimeout(() => S.busy = false, 250));
   }
   const done = S.targets.filter(t => t.done).length;
   $('count').textContent = done + ' / ' + S.targets.length + (S.sim ? '  (modo ratón: arrastra)' : '');
@@ -189,6 +209,7 @@ async function process() {
   for (;;) { // si el equipo no tiene memoria, baja de resolución
     try { pano = new Pano(FW, FH); break; } catch (e) { if (FW <= 4096) throw e; FW = FW > 5760 ? 5760 : 4096; FH = FW / 2; }
   }
+  pano.par = res.par || null; pano.pw = 8;
   const order = stitchOrder(res.Rs);
   const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
   for (let k = 0; k < order.length; k++) {
@@ -202,6 +223,8 @@ async function process() {
   }
   say('Rellenando huecos…', 0.93); await tick();
   pano.fillHoles();
+  say('Afinando nitidez…', 0.95); await tick();
+  pano.sharpen(0.5);
   say('Guardando…', 0.97); await tick();
   const out = document.createElement('canvas'); out.width = FW; out.height = FH;
   out.getContext('2d').putImageData(new ImageData(pano.data, FW, FH), 0, 0);

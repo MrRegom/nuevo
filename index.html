@@ -15,8 +15,11 @@
   <div class="hero"><div class="person">🧍</div><div class="ring"></div></div>
   <h1>Párate en un solo punto<br>y escanea</h1>
   <p class="sub">Gira sobre ti mismo y apunta a los puntos que aparecen. La foto se toma sola cuando estás alineado.</p>
-  <label class="fov">Campo de visión vertical de tu cámara: <b id="fovVal">62</b>°
-    <input id="fov" type="range" min="40" max="95" value="62">
+  <label class="fov">Calidad
+    <select id="preset"><option value="high" selected>Alta · 52 fotos (recomendado)</option><option value="fast">Rápida · 30 fotos</option></select>
+  </label>
+  <label class="fov">Campo de visión inicial: <b id="fovVal">62</b>° <span class="mini">(se calibra solo)</span>
+    <input id="fov" type="range" min="45" max="90" value="62">
   </label>
   <button id="start" class="btn">Sí, estoy de pie</button>
   <p id="introErr" class="err"></p>
@@ -34,20 +37,29 @@
   </div>
 </section>
 
+<section id="processing" class="screen">
+  <h1>Armando tu 360°</h1>
+  <p id="procMsg" class="sub">Preparando…</p>
+  <div class="progress"><div id="procBar"></div></div>
+  <p class="sub">Mantén esta pantalla abierta</p>
+</section>
+
 <section id="result" class="screen">
   <div id="pano"></div>
   <div class="bar">
-    <button id="again" class="btn ghost">Nuevo escaneo</button>
-    <button id="download" class="btn">Descargar JPG</button>
+    <button id="again" class="btn ghost">Nuevo</button>
+    <button id="html" class="btn ghost">Visor HTML</button>
+    <button id="download" class="btn">Guardar JPG</button>
   </div>
   <details id="embed"><summary>Usar en tu página web</summary>
-    <p>Sube <code>panorama.jpg</code> junto a <code>viewer.html</code> y pega:</p>
+    <p>Opción A: descarga <b>Visor HTML</b> (un solo archivo, funciona en cualquier web).<br>Opción B: sube <code>panorama.jpg</code> junto a <code>viewer.html</code> y pega:</p>
     <pre>&lt;iframe src="viewer.html?img=panorama.jpg"
   width="100%" height="500" allowfullscreen&gt;&lt;/iframe&gt;</pre>
   </details>
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script src="core.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

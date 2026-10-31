@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css">
+<title>Visor 360</title>
+<style>html,body,#p{margin:0;width:100%;height:100%;background:#000}</style></head>
+<body><div id="p"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script>
+var img = new URLSearchParams(location.search).get('img') || 'panorama.jpg';
+pannellum.viewer('p',{type:'equirectangular',panorama:img,autoLoad:true,autoRotate:-2,showFullscreenCtrl:true});
+</script></body></html>

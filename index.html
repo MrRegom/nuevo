@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css">
+<link rel="stylesheet" href="style.css">
+<title>Scan360</title>
+</head>
+<body>
+
+<section id="intro" class="screen active">
+  <div class="hero"><div class="person">🧍</div><div class="ring"></div></div>
+  <h1>Párate en un solo punto<br>y escanea</h1>
+  <p class="sub">Gira sobre ti mismo y apunta a los puntos que aparecen. La foto se toma sola cuando estás alineado.</p>
+  <label class="fov">Campo de visión vertical de tu cámara: <b id="fovVal">62</b>°
+    <input id="fov" type="range" min="40" max="95" value="62">
+  </label>
+  <button id="start" class="btn">Sí, estoy de pie</button>
+  <p id="introErr" class="err"></p>
+</section>
+
+<section id="scan" class="screen">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+  <div id="hint">Apunta al punto</div>
+  <div id="count">0 / 0</div>
+  <canvas id="mini" width="256" height="128"></canvas>
+  <div class="bar">
+    <button id="cancel" class="btn ghost">Cancelar</button>
+    <button id="finish" class="btn">Terminar</button>
+  </div>
+</section>
+
+<section id="result" class="screen">
+  <div id="pano"></div>
+  <div class="bar">
+    <button id="again" class="btn ghost">Nuevo escaneo</button>
+    <button id="download" class="btn">Descargar JPG</button>
+  </div>
+  <details id="embed"><summary>Usar en tu página web</summary>
+    <p>Sube <code>panorama.jpg</code> junto a <code>viewer.html</code> y pega:</p>
+    <pre>&lt;iframe src="viewer.html?img=panorama.jpg"
+  width="100%" height="500" allowfullscreen&gt;&lt;/iframe&gt;</pre>
+  </details>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
